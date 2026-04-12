@@ -1,0 +1,284 @@
+const express = require("express");
+const router = express.Router();
+const Customer = require("../models/Customer");
+const upload = require("../middleware/upload");
+const moment = require("moment-timezone")
+const Expense = require("../models/Expense");
+
+
+router.post(
+  "/create",
+  upload.fields([
+    { name: "officerImage", maxCount: 1 },
+    { name: "documentFile", maxCount: 1 },
+  ]),
+  async (req, res) => {
+    try {
+      const customer = new Customer({
+        ...req.body,
+
+        officerImage: req.files["officerImage"]
+          ? req.files["officerImage"][0].filename
+          : null,
+
+        documentFile: req.files["documentFile"]
+          ? req.files["documentFile"][0].filename
+          : null,
+      });
+
+      await customer.save();
+
+      res.json({
+        status: true,
+        message: "Customer created",
+        data: customer,
+      });
+    } catch (err) {
+      res.json({
+        status: false,
+        message: err.message,
+      });
+    }
+  }
+);
+
+router.get("/list", async (req, res) => {
+  try {
+    const baseUrl = process.env.BASE_URL;
+
+    const customers = await Customer.find().sort({ createdAt: -1 });
+
+    const data = customers.map((item) => ({
+      ...item._doc,
+
+      officerImage: item.officerImage
+        ? baseUrl + item.officerImage
+        : null,
+
+      documentFile: item.documentFile
+        ? baseUrl + item.documentFile
+        : null,
+    }));
+
+    res.json({
+      status: true,
+      data,
+    });
+  } catch (err) {
+    res.json({
+      status: false,
+      message: err.message,
+    });
+  }
+});
+/// ✅ LIST CUSTOMER
+// router.get("/list", async (req, res) => {
+//   try {
+//     const data = await Customer.find().sort({ createdAt: -1 });
+
+//     res.json({
+//       status: true,
+//       data,
+//     });
+//   } catch (err) {
+//     res.json({
+//       status: false,
+//       message: err.message,
+//     });
+//   }
+// });
+router.get("/stats", async (req, res) => {
+  try {
+    const customers = await Customer.find();
+    const expenses = await Expense.find();
+
+    let pending = 0;
+    let completed = 0;
+    let totalAmount = 0;
+    let officerPayment = 0;
+    let totalExpense = 0;
+
+    /// 🔥 CUSTOMER DATA
+    customers.forEach(c => {
+      const amount = Number(c.totalAmount || 0);
+      const officerAmt = Number(c.officerAmount || 0);
+
+      totalAmount += amount;
+
+      if (c.amountStatus === "Pending") {
+        pending += amount;
+      }
+
+      if (c.amountStatus === "Done") {
+        completed += amount;
+      }
+
+      /// ✅ OFFICER PAYMENT (only Paid)
+      if (c.officerStatus === "Paid") {
+        officerPayment += officerAmt;
+      }
+    });
+
+    /// 🔥 EXPENSE DATA
+    expenses.forEach(e => {
+      const amt = Number(e.amount || 0);
+
+      /// optional filter
+      if (e.status === "Paid" || e.status == null) {
+        totalExpense += amt;
+      }
+    });
+
+    res.json({
+      status: true,
+      data: {
+        pending,
+        completed,
+        totalAmount,
+        officerPayment,
+        totalExpense,
+      }
+    });
+
+  } catch (err) {
+    res.json({
+      status: false,
+      message: err.message
+    });
+  }
+});
+
+router.put("/update-status/:id", async (req, res) => {
+  try {
+    const { status, workStatus } = req.body;
+
+    const updateData = {
+      updatedAt: moment()
+        .tz("Asia/Kolkata")
+        .format("YYYY-MM-DD HH:mm:ss"),
+    };
+
+    if (status) {
+      updateData.amountStatus = status;
+    }
+
+    if (workStatus) {
+      updateData.workStatus = workStatus;
+    }
+
+    const data = await Customer.findByIdAndUpdate(
+      req.params.id,
+      updateData,
+      { new: true }
+    );
+
+    res.json({
+      status: true,
+      message: "Updated",
+      data,
+    });
+  } catch (err) {
+    res.json({
+      status: false,
+      message: err.message,
+    });
+  }
+});
+
+router.put(
+  "/update/:id",
+  upload.fields([
+    { name: "officerImage", maxCount: 1 },
+    { name: "documentFile", maxCount: 1 },
+  ]),
+  async (req, res) => {
+    try {
+      const customer = await Customer.findById(req.params.id);
+
+      if (!customer) {
+        return res.json({
+          status: false,
+          message: "Customer not found",
+        });
+      }
+
+      /// 🔥 BODY UPDATE
+      Object.assign(customer, req.body);
+
+      /// 🖼️ OFFICER IMAGE
+      if (req.files["officerImage"]) {
+        /// only update if NOT already exists
+        if (!customer.officerImage) {
+          customer.officerImage = req.files["officerImage"][0].filename;
+        }
+      }
+
+      /// 📄 DOCUMENT FILE
+      if (req.files["documentFile"]) {
+        /// only update if NOT already exists
+        if (!customer.documentFile) {
+          customer.documentFile = req.files["documentFile"][0].filename;
+        }
+      }
+
+      /// 🔥 UPDATE TIME
+      customer.updatedAt = moment()
+        .tz("Asia/Kolkata")
+        .format("YYYY-MM-DD HH:mm:ss");
+
+      await customer.save();
+
+      res.json({
+        status: true,
+        message: "Customer updated",
+        data: customer,
+      });
+    } catch (err) {
+      res.json({
+        status: false,
+        message: err.message,
+      });
+    }
+  }
+);
+
+// ✅ GET UNIQUE COMPANY LIST
+router.get("/company-list", async (req, res) => {
+  try {
+    const data = await Customer.aggregate([
+      {
+        $match: {
+          company: { $ne: null, $ne: "" }, // empty remove
+        },
+      },
+      {
+        $group: {
+          _id: "$company",
+          address: { $first: "$address" },
+        },
+      },
+      {
+        $project: {
+          _id: 0,
+          name: "$_id",
+          address: 1,
+        },
+      },
+      {
+        $sort: { name: 1 },
+      },
+    ]);
+
+    res.json({
+      status: true,
+      data,
+    });
+  } catch (err) {
+    res.json({
+      status: false,
+      message: err.message,
+    });
+  }
+});
+
+module.exports = router;
