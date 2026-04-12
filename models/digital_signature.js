@@ -9,6 +9,8 @@ const dscSchema = new mongoose.Schema({
   years: String,
 
   company: String,
+  company_phone: String,
+  customer_phone: String,
   holderName: String,
 
   category: String,
