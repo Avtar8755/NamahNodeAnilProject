@@ -18,7 +18,7 @@ app.use("/api/payment", require("./routes/payment"));
 app.use("/api/dsc", require("./routes/digitalSignature"));
 app.use("/api/error", require("./routes/error"));
 
-aoo.get("/", (req, res) => {
+app.get("/", (req, res) => {
   res.send("<h1>Server</h1>")
 })
 
