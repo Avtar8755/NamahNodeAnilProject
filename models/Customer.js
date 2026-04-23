@@ -27,8 +27,8 @@ const customerSchema = new mongoose.Schema({
   remark: String,
 
   /// 🔥 FILE PATHS
-  officerImage: String,
-  documentFile: String,
+  officerImages: [String],
+  documentFiles: [String],
 
   /// 🕒 IST TIME
   createdAt: {

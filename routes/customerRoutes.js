@@ -4,26 +4,28 @@ const Customer = require("../models/Customer");
 const upload = require("../middleware/upload");
 const moment = require("moment-timezone")
 const Expense = require("../models/Expense");
-
-
 router.post(
   "/create",
   upload.fields([
-    { name: "officerImage", maxCount: 1 },
-    { name: "documentFile", maxCount: 1 },
+    { name: "officerImage", maxCount: 10 },
+    { name: "documentFile", maxCount: 10 },
   ]),
   async (req, res) => {
     try {
+      /// 🔍 DEBUG (IMPORTANT)
+      console.log("FILES:", req.files);
+
       const customer = new Customer({
         ...req.body,
 
-        officerImage: req.files["officerImage"]
-          ? req.files["officerImage"][0].filename
-          : null,
+        /// ✅ MULTIPLE SAVE
+        officerImages: req.files["officerImage"]
+          ? req.files["officerImage"].map(file => file.filename)
+          : [],
 
-        documentFile: req.files["documentFile"]
-          ? req.files["documentFile"][0].filename
-          : null,
+        documentFiles: req.files["documentFile"]
+          ? req.files["documentFile"].map(file => file.filename)
+          : [],
       });
 
       await customer.save();
@@ -34,6 +36,7 @@ router.post(
         data: customer,
       });
     } catch (err) {
+      console.log(err);
       res.json({
         status: false,
         message: err.message,
@@ -41,7 +44,6 @@ router.post(
     }
   }
 );
-
 router.get("/list", async (req, res) => {
   try {
     const baseUrl = process.env.BASE_URL;
@@ -51,13 +53,17 @@ router.get("/list", async (req, res) => {
     const data = customers.map((item) => ({
       ...item._doc,
 
-      officerImage: item.officerImage
-        ? baseUrl + item.officerImage
-        : null,
+     officerImages: item.officerImages?.length
+  ? item.officerImages.map((img) => baseUrl + img)
+  : item.officerImage
+    ? [baseUrl + item.officerImage]
+    : [],
 
-      documentFile: item.documentFile
-        ? baseUrl + item.documentFile
-        : null,
+documentFiles: item.documentFiles?.length
+  ? item.documentFiles.map((file) => baseUrl + file)
+  : item.documentFile
+    ? [baseUrl + item.documentFile]
+    : [],
     }));
 
     res.json({
@@ -188,8 +194,8 @@ router.put("/update-status/:id", async (req, res) => {
 router.put(
   "/update/:id",
   upload.fields([
-    { name: "officerImage", maxCount: 1 },
-    { name: "documentFile", maxCount: 1 },
+    { name: "officerImages", maxCount: 10 },
+    { name: "documentFiles", maxCount: 10 },
   ]),
   async (req, res) => {
     try {
@@ -202,26 +208,26 @@ router.put(
         });
       }
 
-      /// 🔥 BODY UPDATE
+      /// 🔥 BODY UPDATE (A to Z change allowed)
       Object.assign(customer, req.body);
 
-      /// 🖼️ OFFICER IMAGE
-      if (req.files["officerImage"]) {
-        /// only update if NOT already exists
-        if (!customer.officerImage) {
-          customer.officerImage = req.files["officerImage"][0].filename;
-        }
+      /// 🖼️ OFFICER IMAGES (ADD NEW)
+      if (req.files["officerImages"]) {
+        customer.officerImages = [
+          ...(customer.officerImages || []),
+          ...req.files["officerImages"].map(f => f.filename),
+        ];
       }
 
-      /// 📄 DOCUMENT FILE
-      if (req.files["documentFile"]) {
-        /// only update if NOT already exists
-        if (!customer.documentFile) {
-          customer.documentFile = req.files["documentFile"][0].filename;
-        }
+      /// 📄 DOCUMENT FILES (ADD NEW)
+      if (req.files["documentFiles"]) {
+        customer.documentFiles = [
+          ...(customer.documentFiles || []),
+          ...req.files["documentFiles"].map(f => f.filename),
+        ];
       }
 
-      /// 🔥 UPDATE TIME
+      /// 🔥 UPDATED TIME
       customer.updatedAt = moment()
         .tz("Asia/Kolkata")
         .format("YYYY-MM-DD HH:mm:ss");
@@ -233,6 +239,7 @@ router.put(
         message: "Customer updated",
         data: customer,
       });
+
     } catch (err) {
       res.json({
         status: false,
@@ -241,7 +248,6 @@ router.put(
     }
   }
 );
-
 // ✅ GET UNIQUE COMPANY LIST
 router.get("/company-list", async (req, res) => {
   try {

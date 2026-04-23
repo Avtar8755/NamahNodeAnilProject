@@ -9,6 +9,7 @@ const expenseSchema = new mongoose.Schema({
   amount: String,
   remark: String,
   status: String,
+    images: [String],
 
   /// 🔥 IST time direct
       createdAt: {
