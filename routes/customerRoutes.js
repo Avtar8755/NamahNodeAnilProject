@@ -4,6 +4,9 @@ const Customer = require("../models/Customer");
 const upload = require("../middleware/upload");
 const moment = require("moment-timezone")
 const Expense = require("../models/Expense");
+const fs = require("fs");
+const path = require("path");
+
 router.post(
   "/create",
   upload.fields([
@@ -279,6 +282,53 @@ router.get("/company-list", async (req, res) => {
       status: true,
       data,
     });
+  } catch (err) {
+    res.json({
+      status: false,
+      message: err.message,
+    });
+  }
+});
+
+router.delete("/delete-file/:id", async (req, res) => {
+  try {
+    const { file, type } = req.body; 
+    // file = filename
+    // type = "officer" | "document"
+
+    const customer = await Customer.findById(req.params.id);
+
+    if (!customer) {
+      return res.json({ status: false, message: "Not found" });
+    }
+
+    /// 🔥 REMOVE FROM DB
+    if (type === "officer") {
+      customer.officerImages = customer.officerImages.filter(
+        (f) => f !== file
+      );
+    }
+
+    if (type === "document") {
+      customer.documentFiles = customer.documentFiles.filter(
+        (f) => f !== file
+      );
+    }
+
+    /// 🔥 DELETE FROM SERVER
+    const filePath = path.join(__dirname, "../uploads", file);
+
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+
+    await customer.save();
+
+    res.json({
+      status: true,
+      message: "File deleted",
+    });
+
   } catch (err) {
     res.json({
       status: false,
