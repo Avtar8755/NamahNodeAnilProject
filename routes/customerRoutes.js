@@ -4,7 +4,7 @@ const Customer = require("../models/Customer");
 const upload = require("../middleware/upload");
 const moment = require("moment-timezone");
 const cloudinary = require("../config/cloudinary");
-const expenses = require("../models/Expense")
+const Expense = require("../models/Expense");
 
 router.post(
   "/create",
