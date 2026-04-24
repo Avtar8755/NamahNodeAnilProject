@@ -2,16 +2,20 @@ const express = require("express");
 const router = express.Router();
 const Expense = require("../models/Expense");
 const upload = require("../middleware/upload");
+const cloudinary = require("../config/cloudinary")
 
 
 router.post(
   "/create",
-  upload.array("images", 10), // 🔥 multiple files
+  upload.array("images", 10), // multiple files
   async (req, res) => {
     try {
 
+      console.log("FILES:", req.files);
+
+      /// ✅ CLOUDINARY URL SAVE
       const imageFiles = req.files
-        ? req.files.map(file => file.filename)
+        ? req.files.map(file => file.path)
         : [];
 
       const expense = new Expense({
@@ -40,21 +44,14 @@ router.post(
 /// ✅ LIST
 router.get("/list", async (req, res) => {
   try {
-    const baseUrl = process.env.BASE_URL;
-
     const expenses = await Expense.find().sort({ createdAt: -1 });
 
-    /// 🔥 MODIFY DATA
-    const data = expenses.map(item => {
-      const obj = item.toObject();
+    const data = expenses.map(item => ({
+      ...item.toObject(),
 
-      /// images array ko full URL me convert karo
-      if (obj.images && obj.images.length > 0) {
-        obj.images = obj.images.map(file => baseUrl + file);
-      }
-
-      return obj;
-    });
+      /// ✅ DIRECT URL (Cloudinary)
+      images: item.images || [],
+    }));
 
     res.json({
       status: true,
@@ -83,12 +80,12 @@ router.put(
       /// 🔥 TEXT UPDATE
       Object.assign(expense, req.body);
 
-      /// 🔥 NEW IMAGES
+      /// ✅ NEW IMAGES (Cloudinary URL)
       const newImages = req.files
-        ? req.files.map(f => f.filename)
+        ? req.files.map(f => f.path)
         : [];
 
-      /// 🔥 APPEND (IMPORTANT)
+      /// 🔥 APPEND
       expense.images = [
         ...(expense.images || []),
         ...newImages,
@@ -110,5 +107,56 @@ router.put(
     }
   }
 );
+
+router.delete("/delete-image/:id", async (req, res) => {
+  try {
+    const { file } = req.body; // full Cloudinary URL
+
+    if (!file) {
+      return res.json({ status: false, message: "File missing" });
+    }
+
+    const expense = await Expense.findById(req.params.id);
+
+    if (!expense) {
+      return res.json({ status: false, message: "Expense not found" });
+    }
+
+    /// 🔥 REMOVE FROM DB
+    expense.images = (expense.images || []).filter(f => f !== file);
+
+    /// 🔥 DELETE FROM CLOUDINARY
+    try {
+      const publicId = file
+        .split("/upload/")[1]
+        .split("/")
+        .slice(1)
+        .join("/")
+        .split(".")[0];
+
+      console.log("PUBLIC ID:", publicId);
+
+      const result = await cloudinary.uploader.destroy(publicId);
+
+      console.log("DELETE RESULT:", result);
+
+    } catch (err) {
+      console.log("Cloudinary error:", err);
+    }
+
+    await expense.save();
+
+    res.json({
+      status: true,
+      message: "Image deleted",
+    });
+
+  } catch (err) {
+    res.json({
+      status: false,
+      message: err.message,
+    });
+  }
+});
 
 module.exports = router;

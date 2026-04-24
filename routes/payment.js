@@ -3,26 +3,33 @@ const router = express.Router();
 const Payment = require("../models/paymentReceived");
 const upload = require("../middleware/upload");
 const moment = require("moment-timezone");
+const cloudinary = require("../config/cloudinary");
 
 /// 🔥 CREATE PAYMENT
 router.post(
   "/create",
   upload.fields([
-    { name: "transferScreenshot", maxCount: 1 },
-    { name: "receivedScreenshot", maxCount: 1 },
+    { name: "transferScreenshots", maxCount: 10 },
+    { name: "receivedScreenshots", maxCount: 10 },
   ]),
   async (req, res) => {
     try {
+
+      console.log("FILES:", req.files);
+
       const payment = new Payment({
         ...req.body,
 
-        transferScreenshot: req.files["transferScreenshot"]
-          ? req.files["transferScreenshot"][0].filename
-          : null,
+        remark: req.body.remark || "",
 
-        receivedScreenshot: req.files["receivedScreenshot"]
-          ? req.files["receivedScreenshot"][0].filename
-          : null,
+        /// ✅ MULTIPLE CLOUDINARY URLS
+        transferScreenshots: req.files["transferScreenshots"]
+          ? req.files["transferScreenshots"].map(f => f.path)
+          : [],
+
+        receivedScreenshots: req.files["receivedScreenshots"]
+          ? req.files["receivedScreenshots"].map(f => f.path)
+          : [],
       });
 
       await payment.save();
@@ -32,6 +39,7 @@ router.post(
         message: "Payment saved",
         data: payment,
       });
+
     } catch (err) {
       res.json({
         status: false,
@@ -44,25 +52,14 @@ router.post(
 /// 🔥 LIST PAYMENT
 router.get("/list", async (req, res) => {
   try {
-    let baseUrl = process.env.BASE_URL || "";
-
-    /// 🔥 ensure slash at end
-    if (!baseUrl.endsWith("/")) {
-      baseUrl = baseUrl + "/";
-    }
-
     const payments = await Payment.find().sort({ createdAt: -1 });
 
     const data = payments.map((item) => ({
       ...item._doc,
 
-      transferScreenshot: item.transferScreenshot
-        ? baseUrl + item.transferScreenshot
-        : null,
-
-      receivedScreenshot: item.receivedScreenshot
-        ? baseUrl + item.receivedScreenshot
-        : null,
+      /// ✅ DIRECT CLOUDINARY URL (ARRAY)
+      transferScreenshots: item.transferScreenshots || [],
+      receivedScreenshots: item.receivedScreenshots || [],
     }));
 
     res.json({
@@ -98,8 +95,8 @@ router.delete("/delete/:id", async (req, res) => {
 router.post(
   "/update/:id",
   upload.fields([
-    { name: "transferScreenshot", maxCount: 1 },
-    { name: "receivedScreenshot", maxCount: 1 },
+    { name: "transferScreenshots", maxCount: 10 },
+    { name: "receivedScreenshots", maxCount: 10 },
   ]),
   async (req, res) => {
     try {
@@ -112,56 +109,35 @@ router.post(
         });
       }
 
-      /// 🔥 TEXT UPDATE (safe fields only)
-      payment.date = req.body.date || payment.date;
-      payment.company = req.body.company || payment.company;
-      payment.receiverName =
-        req.body.receiverName || payment.receiverName;
-      payment.receivedAmount =
-        req.body.receivedAmount || payment.receivedAmount;
-      payment.paymentMode =
-        req.body.paymentMode || payment.paymentMode;
-      payment.transferTo =
-        req.body.transferTo || payment.transferTo;
-      payment.transferAmount =
-        req.body.transferAmount || payment.transferAmount;
+      /// 🔥 TEXT UPDATE
+      Object.assign(payment, req.body);
 
-      /// 📸 FILE UPDATE (ONLY if new file comes)
-      if (req.files?.transferScreenshot?.length > 0) {
-        payment.transferScreenshot =
-          req.files.transferScreenshot[0].filename;
+      /// ✅ ADD NEW TRANSFER IMAGES
+      if (req.files["transferScreenshots"]) {
+        payment.transferScreenshots = [
+          ...(payment.transferScreenshots || []),
+          ...req.files["transferScreenshots"].map(f => f.path),
+        ];
       }
 
-      if (req.files?.receivedScreenshot?.length > 0) {
-        payment.receivedScreenshot =
-          req.files.receivedScreenshot[0].filename;
+      /// ✅ ADD NEW RECEIVED IMAGES
+      if (req.files["receivedScreenshots"]) {
+        payment.receivedScreenshots = [
+          ...(payment.receivedScreenshots || []),
+          ...req.files["receivedScreenshots"].map(f => f.path),
+        ];
       }
 
-      /// 🕒 UPDATE TIME
       payment.updatedAt = moment()
         .tz("Asia/Kolkata")
         .format("YYYY-MM-DD HH:mm:ss");
 
       await payment.save();
 
-      /// 🔥 BASE URL (for frontend)
-      let baseUrl = process.env.BASE_URL || "";
-      if (!baseUrl.endsWith("/")) baseUrl += "/";
-
-      const responseData = {
-        ...payment._doc,
-        transferScreenshot: payment.transferScreenshot
-          ? baseUrl + payment.transferScreenshot
-          : null,
-        receivedScreenshot: payment.receivedScreenshot
-          ? baseUrl + payment.receivedScreenshot
-          : null,
-      };
-
       res.json({
         status: true,
         message: "Payment Updated Successfully",
-        data: responseData,
+        data: payment,
       });
 
     } catch (err) {
@@ -174,5 +150,64 @@ router.post(
     }
   }
 );
+
+router.delete("/delete-image/:id", async (req, res) => {
+  try {
+    const { file, type } = req.body;
+    // type = "transfer" | "received"
+
+    if (!file) {
+      return res.json({ status: false, message: "File missing" });
+    }
+
+    const payment = await Payment.findById(req.params.id);
+
+    if (!payment) {
+      return res.json({ status: false, message: "Payment not found" });
+    }
+
+    /// 🔥 REMOVE FROM DB
+    if (type === "transfer") {
+      payment.transferScreenshots =
+        (payment.transferScreenshots || []).filter(f => f !== file);
+    }
+
+    if (type === "received") {
+      payment.receivedScreenshots =
+        (payment.receivedScreenshots || []).filter(f => f !== file);
+    }
+
+    /// 🔥 DELETE FROM CLOUDINARY
+    try {
+      const publicId = file
+        .split("/upload/")[1]
+        .split("/")
+        .slice(1)
+        .join("/")
+        .split(".")[0];
+
+      console.log("PUBLIC ID:", publicId);
+
+      const result = await cloudinary.uploader.destroy(publicId);
+
+      console.log("DELETE RESULT:", result);
+    } catch (err) {
+      console.log("Cloudinary delete error:", err);
+    }
+
+    await payment.save();
+
+    res.json({
+      status: true,
+      message: "Image deleted",
+    });
+
+  } catch (err) {
+    res.json({
+      status: false,
+      message: err.message,
+    });
+  }
+});
 
 module.exports = router;

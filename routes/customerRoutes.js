@@ -2,10 +2,8 @@ const express = require("express");
 const router = express.Router();
 const Customer = require("../models/Customer");
 const upload = require("../middleware/upload");
-const moment = require("moment-timezone")
-const Expense = require("../models/Expense");
-const fs = require("fs");
-const path = require("path");
+const moment = require("moment-timezone");
+const cloudinary = require("../config/cloudinary");
 
 router.post(
   "/create",
@@ -15,20 +13,23 @@ router.post(
   ]),
   async (req, res) => {
     try {
-      /// 🔍 DEBUG (IMPORTANT)
       console.log("FILES:", req.files);
 
       const customer = new Customer({
         ...req.body,
 
-        /// ✅ MULTIPLE SAVE
+        /// ✅ CLOUDINARY URL SAVE
         officerImages: req.files["officerImage"]
-          ? req.files["officerImage"].map(file => file.filename)
+          ? req.files["officerImage"].map(file => file.path)
           : [],
 
         documentFiles: req.files["documentFile"]
-          ? req.files["documentFile"].map(file => file.filename)
+          ? req.files["documentFile"].map(file => file.path)
           : [],
+
+        createdAt: moment()
+          .tz("Asia/Kolkata")
+          .format("YYYY-MM-DD HH:mm:ss"),
       });
 
       await customer.save();
@@ -38,6 +39,7 @@ router.post(
         message: "Customer created",
         data: customer,
       });
+
     } catch (err) {
       console.log(err);
       res.json({
@@ -47,32 +49,25 @@ router.post(
     }
   }
 );
+
+module.exports = router;
 router.get("/list", async (req, res) => {
   try {
-    const baseUrl = process.env.BASE_URL;
-
     const customers = await Customer.find().sort({ createdAt: -1 });
 
     const data = customers.map((item) => ({
       ...item._doc,
 
-     officerImages: item.officerImages?.length
-  ? item.officerImages.map((img) => baseUrl + img)
-  : item.officerImage
-    ? [baseUrl + item.officerImage]
-    : [],
-
-documentFiles: item.documentFiles?.length
-  ? item.documentFiles.map((file) => baseUrl + file)
-  : item.documentFile
-    ? [baseUrl + item.documentFile]
-    : [],
+      /// ✅ DIRECT URL (Cloudinary)
+      officerImages: item.officerImages || [],
+      documentFiles: item.documentFiles || [],
     }));
 
     res.json({
       status: true,
       data,
     });
+
   } catch (err) {
     res.json({
       status: false,
@@ -205,32 +200,26 @@ router.put(
       const customer = await Customer.findById(req.params.id);
 
       if (!customer) {
-        return res.json({
-          status: false,
-          message: "Customer not found",
-        });
+        return res.json({ status: false, message: "Customer not found" });
       }
 
-      /// 🔥 BODY UPDATE (A to Z change allowed)
       Object.assign(customer, req.body);
 
-      /// 🖼️ OFFICER IMAGES (ADD NEW)
+      /// ✅ ADD NEW IMAGES
       if (req.files["officerImages"]) {
         customer.officerImages = [
           ...(customer.officerImages || []),
-          ...req.files["officerImages"].map(f => f.filename),
+          ...req.files["officerImages"].map(f => f.path),
         ];
       }
 
-      /// 📄 DOCUMENT FILES (ADD NEW)
       if (req.files["documentFiles"]) {
         customer.documentFiles = [
           ...(customer.documentFiles || []),
-          ...req.files["documentFiles"].map(f => f.filename),
+          ...req.files["documentFiles"].map(f => f.path),
         ];
       }
 
-      /// 🔥 UPDATED TIME
       customer.updatedAt = moment()
         .tz("Asia/Kolkata")
         .format("YYYY-MM-DD HH:mm:ss");
@@ -244,10 +233,7 @@ router.put(
       });
 
     } catch (err) {
-      res.json({
-        status: false,
-        message: err.message,
-      });
+      res.json({ status: false, message: err.message });
     }
   }
 );
@@ -290,36 +276,57 @@ router.get("/company-list", async (req, res) => {
   }
 });
 
+
+
 router.delete("/delete-file/:id", async (req, res) => {
   try {
-    const { file, type } = req.body; 
-    // file = filename
-    // type = "officer" | "document"
+    const { file, type } = req.body;
+
+    console.log("REQ BODY:", req.body);
+
+    if (!file) {
+      return res.json({
+        status: false,
+        message: "File URL missing",
+      });
+    }
 
     const customer = await Customer.findById(req.params.id);
 
     if (!customer) {
-      return res.json({ status: false, message: "Not found" });
+      return res.json({ status: false, message: "Customer not found" });
     }
 
     /// 🔥 REMOVE FROM DB
     if (type === "officer") {
-      customer.officerImages = customer.officerImages.filter(
+      customer.officerImages = (customer.officerImages || []).filter(
         (f) => f !== file
       );
     }
 
     if (type === "document") {
-      customer.documentFiles = customer.documentFiles.filter(
+      customer.documentFiles = (customer.documentFiles || []).filter(
         (f) => f !== file
       );
     }
 
-    /// 🔥 DELETE FROM SERVER
-    const filePath = path.join(__dirname, "../uploads", file);
+    /// 🔥 DELETE FROM CLOUDINARY
+    try {
+      const publicId = file
+        .split("/upload/")[1]
+        .split("/")
+        .slice(1)
+        .join("/")
+        .split(".")[0];
 
-    if (fs.existsSync(filePath)) {
-      fs.unlinkSync(filePath);
+      console.log("PUBLIC ID:", publicId);
+
+      const result = await cloudinary.uploader.destroy(publicId);
+
+      console.log("DELETE RESULT:", result);
+
+    } catch (err) {
+      console.log("Cloudinary delete error:", err);
     }
 
     await customer.save();

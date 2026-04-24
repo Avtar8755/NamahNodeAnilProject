@@ -5,8 +5,8 @@ const errorSchema = new mongoose.Schema({
   errorName: String,
   solution: String,
 
-  errorPhoto: String,
-  solutionPhoto: String,
+errorPhotos: [String],
+solutionPhotos: [String],
 
   createdAt: {
     type: String,

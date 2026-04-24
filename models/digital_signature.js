@@ -15,7 +15,7 @@ const dscSchema = new mongoose.Schema({
 
   category: String,
 
-  documentFile: String,
+ documentFiles: [String],
 
   status: String,
   remark: String,

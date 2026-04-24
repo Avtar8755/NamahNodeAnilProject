@@ -11,10 +11,11 @@ const paymentSchema = new mongoose.Schema({
 
   transferTo: String,
   transferAmount: String,
+  remark: String,
 
   /// 📸 FILES
-  transferScreenshot: String,
-  receivedScreenshot: String,
+transferScreenshots: [String],
+receivedScreenshots: [String],
 
   createdAt: {
     type: String,
