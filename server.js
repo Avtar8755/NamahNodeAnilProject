@@ -17,6 +17,16 @@ app.use("/api/customer", require("./routes/customerRoutes"));
 app.use("/api/payment", require("./routes/payment"));
 app.use("/api/dsc", require("./routes/digitalSignature"));
 app.use("/api/error", require("./routes/error"));
+app.use("/api/service",require("./routes/servicesRoutes"));
+
+app.use((err, req, res, next) => {
+  console.error("GLOBAL ERROR 👉", err);
+
+  res.status(500).json({
+    status: false,
+    message: err.message || "Something went wrong",
+  });
+});
 
 app.get("/", (req, res) => {
   res.send("<h1>Server</h1>")
