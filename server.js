@@ -18,6 +18,10 @@ app.use("/api/payment", require("./routes/payment"));
 app.use("/api/dsc", require("./routes/digitalSignature"));
 app.use("/api/error", require("./routes/error"));
 app.use("/api/service",require("./routes/servicesRoutes"));
+app.use(
+  "/api/payment-transfer",
+  require("./routes/paymentTransferRoutes")
+);
 
 app.use((err, req, res, next) => {
   console.error("GLOBAL ERROR 👉", err);
